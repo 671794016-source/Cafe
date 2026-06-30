@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EspressoPOS - ระบบจัดการร้านกาแฟและเบเกอรี่</title>
+    
+    <!-- Google Fonts: Outfit & Prompt for modern Thai-English typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Chart.js for dashboard reporting -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Supabase JS Client library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Application Stylesheet -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Login View (Takes full screen when not logged in) -->
+    <div id="login-view" class="login-view-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="app-logo-large">
+                    <i data-lucide="coffee"></i>
+                </div>
+                <h1>EspressoPOS</h1>
+                <p>ระบบร้านกาแฟและเบเกอรี่สะสมแต้มสมาชิก</p>
+            </div>
+            
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-email">อีเมล (Email)</label>
+                    <div class="input-wrapper">
+                        <i data-lucide="mail"></i>
+                        <input type="email" id="login-email" placeholder="example@coffee.com" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">รหัสผ่าน (Password)</label>
+                    <div class="input-wrapper">
+                        <i data-lucide="lock"></i>
+                        <input type="password" id="login-password" placeholder="••••••••" required>
+                    </div>
+                </div>
+                <button type="submit" id="btn-login-submit" class="btn btn-primary btn-block">
+                    <i data-lucide="log-in"></i> เข้าสู่ระบบ
+                </button>
+            </form>
+
+            <div class="login-divider">
+                <span>หรือ</span>
+            </div>
+
+            <button id="btn-guest-login" class="btn btn-secondary btn-block">
+                <i data-lucide="user"></i> ทดลองใช้งาน (Offline Mode)
+            </button>
+
+            <div class="login-footer">
+                <p>หากต้องการเชื่อมต่อฐานข้อมูล Supabase สามารถไปตั้งค่าหลังจากเข้าสู่ระบบได้</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Application Shell (POS, Dashboard, Settings) -->
+    <div id="app-shell" class="app-shell-container hidden">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="app-logo">
+                    <i data-lucide="coffee"></i>
+                </div>
+                <div class="app-brand">
+                    <h2>EspressoPOS</h2>
+                    <span id="supabase-status-badge" class="badge badge-offline">Offline Mode</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <button id="nav-pos" class="nav-item active" data-view="pos-view">
+                    <i data-lucide="shopping-cart"></i>
+                    <span>หน้าขายสินค้า (POS)</span>
+                </button>
+                <button id="nav-dashboard" class="nav-item" data-view="dashboard-view">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>แดชบอร์ดรายงาน</span>
+                </button>
+                <button id="nav-customers" class="nav-item" data-view="customers-view">
+                    <i data-lucide="users"></i>
+                    <span>สมาชิก & สะสมแต้ม</span>
+                </button>
+                <button id="nav-settings" class="nav-item" data-view="settings-view">
+                    <i data-lucide="settings"></i>
+                    <span>ตั้งค่า Supabase</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar">
+                        <i data-lucide="user"></i>
+                    </div>
+                    <div class="user-details">
+                        <span id="current-user-email">Cashier / Staff</span>
+                        <small id="current-user-role">ผู้ดูแลระบบ</small>
+                    </div>
+                </div>
+                <button id="btn-logout" class="btn-logout-icon" title="ออกจากระบบ">
+                    <i data-lucide="log-out"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Offline / Demo banner warning if credentials are empty -->
+            <div id="offline-banner" class="alert-banner">
+                <i data-lucide="alert-circle"></i>
+                <span>ขณะนี้ใช้งานในโหมด Offline (ข้อมูลบันทึกในเครื่อง) คุณสามารถกรอก API Key ในหน้า <strong>ตั้งค่า Supabase</strong> เพื่อเชื่อมโยงฐานข้อมูลจริง</span>
+            </div>
+
+            <!-- VIEW 1: POS Screen -->
+            <section id="pos-view" class="view-section">
+                <div class="pos-layout">
+                    <!-- Left: Products Catalog -->
+                    <div class="products-container">
+                        <div class="search-and-filter">
+                            <div class="search-box">
+                                <i data-lucide="search"></i>
+                                <input type="text" id="search-product" placeholder="ค้นหาเมนูเครื่องดื่ม เบเกอรี่...">
+                            </div>
+                            <div class="category-tabs">
+                                <button class="cat-tab active" data-category="all">ทั้งหมด</button>
+                                <button class="cat-tab" data-category="coffee">กาแฟ (Coffee)</button>
+                                <button class="cat-tab" data-category="bakery">เบเกอรี่ (Bakery)</button>
+                            </div>
+                        </div>
+
+                        <!-- Product Grid -->
+                        <div id="product-grid" class="product-grid">
+                            <!-- Dynamically populated -->
+                        </div>
+                    </div>
+
+                    <!-- Right: Cart & Loyalty Panel -->
+                    <div class="cart-container">
+                        <div class="cart-header">
+                            <h3>รายการสั่งซื้อ</h3>
+                            <button id="btn-clear-cart" class="btn-text">ล้างตะกร้า</button>
+                        </div>
+
+                        <!-- Customer Selection Section -->
+                        <div class="customer-selection-card">
+                            <div class="customer-card-header">
+                                <span class="card-title"><i data-lucide="user-check"></i> ข้อมูลลูกค้าสมาชิก</span>
+                                <button id="btn-add-customer-pos" class="btn-icon-text"><i data-lucide="plus"></i> สมัครสมาชิก</button>
+                            </div>
+                            
+                            <div class="customer-search-wrapper">
+                                <div class="select-customer-search">
+                                    <i data-lucide="search"></i>
+                                    <input type="text" id="pos-customer-search" placeholder="ค้นหาเบอร์โทรศัพท์ หรือ ชื่อ..." autocomplete="off">
+                                </div>
+                                <div id="customer-search-dropdown" class="search-dropdown hidden">
+                                    <!-- Search results dropdown -->
+                                </div>
+                            </div>
+
+                            <div id="selected-customer-details" class="selected-customer-details hidden">
+                                <div class="customer-info-row">
+                                    <div>
+                                        <h4 id="sel-cust-name">คุณ สมศักดิ์</h4>
+                                        <p id="sel-cust-phone">089-123-4567</p>
+                                    </div>
+                                    <div class="points-badge">
+                                        <span id="sel-cust-points">45</span> แต้มสะสม
+                                    </div>
+                                </div>
+                                <button id="btn-remove-customer-pos" class="btn-text-danger"><i data-lucide="x"></i> ยกเลิกเลือก</button>
+                            </div>
+                        </div>
+
+                        <!-- Cart Items List -->
+                        <div id="cart-items" class="cart-items-list">
+                            <div class="empty-cart-message">
+                                <i data-lucide="shopping-bag"></i>
+                                <p>ไม่มีสินค้าในตะกร้า</p>
+                            </div>
+                        </div>
+
+                        <!-- Cart Summary -->
+                        <div class="cart-summary">
+                            <!-- Points Redemption Option (Active if customer is selected and has points) -->
+                            <div id="points-redemption-box" class="points-redemption-box disabled">
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="chk-redeem-points" disabled>
+                                    <span class="checkmark"></span>
+                                    <span class="redemption-text">ใช้ 10 แต้ม แลกส่วนลด 50 บาท</span>
+                                </label>
+                                <span id="points-redemption-hint" class="hint-text">(แต้มไม่เพียงพอ)</span>
+                            </div>
+
+                            <div class="summary-divider"></div>
+
+                            <div class="summary-row">
+                                <span>ราคารวม (Subtotal)</span>
+                                <span id="cart-subtotal">฿0.00</span>
+                            </div>
+                            <div class="summary-row discount-row hidden" id="discount-row">
+                                <span>ส่วนลดจากการแลกแต้ม</span>
+                                <span id="cart-discount">-฿0.00</span>
+                            </div>
+                            <div class="summary-row points-earn-row">
+                                <span>แต้มที่จะได้รับครั้งนี้</span>
+                                <span id="cart-points-earned">+0 แต้ม</span>
+                            </div>
+                            
+                            <div class="summary-divider"></div>
+                            
+                            <div class="summary-row total-row">
+                                <span>ยอดรวมสุทธิ</span>
+                                <span id="cart-total">฿0.00</span>
+                            </div>
+
+                            <!-- Checkout action -->
+                            <button id="btn-checkout" class="btn btn-primary btn-block btn-checkout" disabled>
+                                <i data-lucide="credit-card"></i> ชำระเงิน & รับแต้มสะสม
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 2: Dashboard View -->
+            <section id="dashboard-view" class="view-section hidden">
+                <div class="dashboard-header">
+                    <h2>แดชบอร์ดรายงานการขาย</h2>
+                    <div class="dashboard-actions">
+                        <button id="btn-refresh-dashboard" class="btn btn-secondary">
+                            <i data-lucide="refresh-cw"></i> รีเฟรชข้อมูล
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KPI Metric Grid -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-icon icon-revenue">
+                            <i data-lucide="dollar-sign"></i>
+                        </div>
+                        <div class="kpi-data">
+                            <h3>รายได้วันนี้</h3>
+                            <p id="kpi-revenue">฿0.00</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon icon-orders">
+                            <i data-lucide="shopping-bag"></i>
+                        </div>
+                        <div class="kpi-data">
+                            <h3>ยอดสั่งซื้อสะสม</h3>
+                            <p id="kpi-orders">0 รายการ</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon icon-points">
+                            <i data-lucide="award"></i>
+                        </div>
+                        <div class="kpi-data">
+                            <h3>แต้มสะสมที่แจก</h3>
+                            <p id="kpi-points">0 แต้ม</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon icon-members">
+                            <i data-lucide="users-2"></i>
+                        </div>
+                        <div class="kpi-data">
+                            <h3>จำนวนสมาชิกทั้งหมด</h3>
+                            <p id="kpi-members">0 คน</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chart & Analytics Layout -->
+                <div class="dashboard-charts-layout">
+                    <div class="chart-container-card">
+                        <h3>แนวโน้มการขาย (รายชั่วโมง/วัน)</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="salesChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="popular-products-card">
+                        <h3>สินค้าขายดีอันดับต้นๆ</h3>
+                        <div id="popular-products-list" class="popular-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Orders Table -->
+                <div class="recent-orders-card">
+                    <h3>ประวัติรายการคำสั่งซื้อล่าสุด</h3>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>รหัสคำสั่งซื้อ</th>
+                                    <th>วันที่/เวลา</th>
+                                    <th>ลูกค้า</th>
+                                    <th>ยอดสุทธิ</th>
+                                    <th>ส่วนลดแลกแต้ม</th>
+                                    <th>แต้มที่ได้ (+)/ใช้ (-)</th>
+                                    <th>การจัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-orders-tbody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 3: Customers & Loyalty View -->
+            <section id="customers-view" class="view-section hidden">
+                <div class="customers-layout">
+                    <!-- Left Column: Add Customer Form -->
+                    <div class="customer-form-container">
+                        <h3>ลงทะเบียนสมาชิกใหม่</h3>
+                        <form id="customer-register-form">
+                            <div class="form-group">
+                                <label for="cust-name">ชื่อ-นามสกุล</label>
+                                <div class="input-wrapper">
+                                    <i data-lucide="user"></i>
+                                    <input type="text" id="cust-name" placeholder="เช่น คุณ สมชาย ดีใจ" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="cust-phone">เบอร์โทรศัพท์ (จะใช้ในการค้นหาและสะสมแต้ม)</label>
+                                <div class="input-wrapper">
+                                    <i data-lucide="phone"></i>
+                                    <input type="tel" id="cust-phone" placeholder="เช่น 0891234567" required pattern="^[0-9-]{9,15}$">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block">
+                                <i data-lucide="user-plus"></i> บันทึกข้อมูลสมาชิก
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Right Column: Customer Members List -->
+                    <div class="customer-list-container">
+                        <div class="customer-list-header">
+                            <h3>รายชื่อสมาชิกสะสมแต้ม</h3>
+                            <div class="search-box">
+                                <i data-lucide="search"></i>
+                                <input type="text" id="search-member-list" placeholder="ค้นหาชื่อหรือเบอร์โทรศัพท์...">
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>ชื่อสมาชิก</th>
+                                        <th>เบอร์โทรศัพท์</th>
+                                        <th>แต้มปัจจุบัน</th>
+                                        <th>วันที่สมัครสมาชิก</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="customers-list-tbody">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 4: Settings View (Supabase Configuration) -->
+            <section id="settings-view" class="view-section hidden">
+                <div class="settings-card">
+                    <div class="settings-header">
+                        <i data-lucide="database" class="settings-icon"></i>
+                        <div>
+                            <h2>ตั้งค่าการเชื่อมต่อ Supabase</h2>
+                            <p>เชื่อมโยงระบบเข้ากับฐานข้อมูลคลาวด์ Supabase ของคุณเพื่อเก็บข้อมูลจริงและเข้าสู่ระบบด้วยผู้ใช้อื่นๆ</p>
+                        </div>
+                    </div>
+
+                    <form id="settings-form">
+                        <div class="form-group">
+                            <label for="settings-url">Supabase URL</label>
+                            <div class="input-wrapper">
+                                <i data-lucide="globe"></i>
+                                <input type="url" id="settings-url" placeholder="https://xxxxxxxxxxxxxxxxxxxx.supabase.co" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="settings-key">Supabase Anon Key</label>
+                            <div class="input-wrapper">
+                                <i data-lucide="key-round"></i>
+                                <input type="password" id="settings-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." required>
+                            </div>
+                        </div>
+
+                        <div class="settings-actions">
+                            <button type="submit" id="btn-save-settings" class="btn btn-primary">
+                                <i data-lucide="save"></i> บันทึกและทดสอบเชื่อมต่อ
+                            </button>
+                            <button type="button" id="btn-clear-settings" class="btn btn-secondary">
+                                <i data-lucide="trash-2"></i> ล้างการเชื่อมต่อ
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="settings-status-box" id="settings-status-box">
+                        <div class="status-indicator">
+                            <span class="status-dot dot-offline" id="status-dot"></span>
+                            <span id="status-text">ไม่ได้เชื่อมต่อฐานข้อมูล Supabase</span>
+                        </div>
+                    </div>
+
+                    <div class="supabase-setup-guide">
+                        <h3><i data-lucide="info"></i> คำแนะนำในการเริ่มต้นตั้งค่า Table ใน Supabase</h3>
+                        <p>เพื่อให้แอปสามารถทำงานได้สมบูรณ์ กรุณาสร้าง Table ต่อไปนี้ใน Supabase SQL Editor ของคุณ:</p>
+                        
+                        <div class="code-instructions">
+                            <pre><code>-- 1. สร้างตารางลูกค้าสำหรับเก็บแต้มสะสม
+CREATE TABLE customers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    phone VARCHAR(20) UNIQUE NOT NULL,
+    points INT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. สร้างตารางการสั่งซื้อ
+CREATE TABLE orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    total_amount DECIMAL(10,2) NOT NULL,
+    discount DECIMAL(10,2) DEFAULT 0.00,
+    points_earned INT DEFAULT 0,
+    points_redeemed INT DEFAULT 0,
+    customer_id UUID REFERENCES customers(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 3. สร้างตารางรายการสินค้าที่ซื้อในแต่ละบิล
+CREATE TABLE order_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
+    product_name VARCHAR(255) NOT NULL,
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    category VARCHAR(50) NOT NULL
+);
+
+-- 4. ตั้งค่า RLS (Row Level Security) หรือปิดเพื่อทดสอบพัฒนา
+-- รันคำสั่งนี้เพื่อเปิดใช้งานแบบไม่จำกัดชั่วคราวในการพัฒนา
+ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE order_items DISABLE ROW LEVEL SECURITY;</code></pre>
+                        </div>
+                        <p class="warning-text"><i data-lucide="alert-triangle"></i> หลังเชื่อมต่อแล้ว ให้รีเฟรชหน้าเว็บอีกครั้งเพื่อเชื่อมโยงข้อมูล!</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal for Order Success Receipt -->
+    <div id="receipt-modal" class="modal-backdrop hidden">
+        <div class="receipt-modal-content">
+            <div class="receipt-header">
+                <i data-lucide="check-circle" class="receipt-success-icon"></i>
+                <h2>ชำระเงินสำเร็จ!</h2>
+                <p>บันทึกการทำธุรกรรมเรียบร้อย</p>
+            </div>
+            
+            <div class="receipt-ticket">
+                <div class="receipt-store-info">
+                    <h3>EspressoPOS Cafe</h3>
+                    <p>ใบเสร็จรับเงินแบบย่อ</p>
+                </div>
+                
+                <div class="receipt-meta">
+                    <div><strong>เลขที่บิล:</strong> <span id="rec-bill-id">#1234</span></div>
+                    <div><strong>วันที่/เวลา:</strong> <span id="rec-date">30/06/2026 10:00</span></div>
+                    <div><strong>พนักงานขาย:</strong> <span id="rec-cashier">Staff</span></div>
+                    <div id="rec-customer-row" class="hidden"><strong>ลูกค้า:</strong> <span id="rec-customer-info">-</span></div>
+                </div>
+
+                <div class="receipt-divider"></div>
+
+                <div id="rec-items" class="receipt-items">
+                    <!-- Receipt Items -->
+                </div>
+
+                <div class="receipt-divider"></div>
+
+                <div class="receipt-summary-lines">
+                    <div class="receipt-summary-line">
+                        <span>ยอดรวม</span>
+                        <span id="rec-subtotal">฿0.00</span>
+                    </div>
+                    <div class="receipt-summary-line" id="rec-discount-row">
+                        <span>ส่วนลดจากการแลกแต้ม</span>
+                        <span id="rec-discount">-฿0.00</span>
+                    </div>
+                    <div class="receipt-summary-line receipt-total">
+                        <span>ยอดรวมสุทธิ</span>
+                        <span id="rec-total">฿0.00</span>
+                    </div>
+                </div>
+
+                <div class="receipt-divider"></div>
+
+                <div id="rec-loyalty-section" class="receipt-loyalty hidden">
+                    <h4>ข้อมูลการสะสมแต้ม</h4>
+                    <div class="receipt-summary-line">
+                        <span>แต้มก่อนหน้า</span>
+                        <span id="rec-loyalty-prev">0</span>
+                    </div>
+                    <div class="receipt-summary-line highlight-earn">
+                        <span>แต้มที่ได้รับครั้งนี้</span>
+                        <span id="rec-loyalty-earned">+0</span>
+                    </div>
+                    <div class="receipt-summary-line highlight-redeem" id="rec-loyalty-redeemed-row">
+                        <span>แต้มที่แลกไป</span>
+                        <span id="rec-loyalty-redeemed">-0</span>
+                    </div>
+                    <div class="receipt-summary-line receipt-loyalty-total">
+                        <span>แต้มคงเหลือสุทธิ</span>
+                        <span id="rec-loyalty-total">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="receipt-actions">
+                <button id="btn-close-receipt" class="btn btn-primary btn-block">ปิดหน้าต่างใบเสร็จ (เสร็จสิ้น)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script src="supabase-client.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
